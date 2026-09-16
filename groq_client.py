@@ -30,7 +30,10 @@ def build_prompt(query, context_chunks):
         "You are a helpful assistant that answers questions strictly using the "
         "provided context extracted from the user's PDF document(s). "
         "If the answer is not contained in the context, say clearly that you "
-        "don't have enough information from the documents. "
+        "don't have enough information from the documents, and STOP there — "
+        "do not substitute or mention unrelated information just to fill the answer. "
+        "Never guess or fill gaps with information about a different entity, company, "
+        "or topic than what was asked. "
         "When you do answer, mention which source file and page the information came from."
     )
     user = f"Context:\n{context}\n\nQuestion: {query}"
