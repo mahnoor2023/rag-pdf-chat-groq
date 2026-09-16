@@ -90,18 +90,26 @@ class RAGEngine:
         self.chunks.extend(new_chunks)
 
     def retrieve(self, query, k=4):
-        """Return top-k most relevant chunks (with similarity score) for a query."""
+        """Return top-k most relevant, de-duplicated chunks for a query."""
         if self.index is None or self.index.ntotal == 0:
             return []
+        # over-fetch a bit so we still end up with k unique chunks after dedup
+        fetch_k = min(k * 3, self.index.ntotal)
         q_emb = self.embedder.encode([query], convert_to_numpy=True)
         faiss.normalize_L2(q_emb)
-        k = min(k, self.index.ntotal)
-        scores, idxs = self.index.search(q_emb, k)
+        scores, idxs = self.index.search(q_emb, fetch_k)
         results = []
+        seen_texts = set()
         for score, idx in zip(scores[0], idxs[0]):
             if idx == -1:
                 continue
-            results.append({**self.chunks[idx], "score": float(score)})
+            chunk = self.chunks[idx]
+            if chunk["text"] in seen_texts:
+                continue
+            seen_texts.add(chunk["text"])
+            results.append({**chunk, "score": float(score)})
+            if len(results) >= k:
+                break
         return results
 
     def clear(self):
