@@ -1,4 +1,4 @@
-```python
+
 """
 RAGEngine
 
@@ -454,4 +454,4 @@ class RAGEngine:
         )
 
         return True
-```
+
