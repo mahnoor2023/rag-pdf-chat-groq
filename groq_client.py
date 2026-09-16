@@ -1,4 +1,4 @@
-```python
+
 """
 Everything related to talking to the Groq API.
 
@@ -324,4 +324,4 @@ def stream_answer(
         if delta:
 
             yield delta
-```
+
