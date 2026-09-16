@@ -1,24 +1,11 @@
-
-"""
-Application-wide configuration and constants.
-"""
-
-
-# ---------------------------------------------------------------------------
-# FAISS STORAGE
-# ---------------------------------------------------------------------------
+"""App-wide configuration and constants."""
 
 INDEX_DIR = "saved_index"
-
 INDEX_FILE = "faiss.index"
-
 META_FILE = "metadata.pkl"
 
-
-# ---------------------------------------------------------------------------
-# GROQ FALLBACK MODELS
-# ---------------------------------------------------------------------------
-
+# Used only if we can't fetch the live model list from Groq (e.g. no API key yet).
+# The app fetches the current list automatically once a valid key is entered.
 FALLBACK_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -27,16 +14,4 @@ FALLBACK_MODELS = [
     "qwen/qwen3-32b",
 ]
 
-
-# ---------------------------------------------------------------------------
-# EMBEDDING MODEL
-# ---------------------------------------------------------------------------
-
-# Open-source SentenceTransformer model.
-#
-# It runs locally and does not require an API key.
-
-EMBED_MODEL_NAME = (
-    "all-MiniLM-L6-v2"
-)
-
+EMBED_MODEL_NAME = "all-MiniLM-L6-v2"  # small, fast, open-source embedding model
