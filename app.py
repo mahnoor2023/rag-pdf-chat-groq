@@ -1,11 +1,7 @@
 """
-Advanced RAG PDF Chat App
-UI layer only.
-
-Business logic:
-- rag_engine.py -> PDF extraction, chunking, embeddings, FAISS
-- groq_client.py -> Groq API and prompt management
-- config.py -> application configuration
+Advanced RAG (Retrieval-Augmented Generation) PDF Chat App — UI layer only.
+Business logic lives in rag_engine.py (FAISS/embeddings) and groq_client.py (LLM calls),
+so this file stays focused on the Streamlit interface.
 """
 
 import os
@@ -13,82 +9,26 @@ from datetime import datetime
 
 import streamlit as st
 
+from config import FALLBACK_MODELS
+from rag_engine import RAGEngine
+from groq_client import get_client, fetch_available_models, build_prompt, stream_answer
 
 # ---------------------------------------------------------------------------
-# SAFE IMPORTS
+# PAGE CONFIG & CUSTOM STYLE
 # ---------------------------------------------------------------------------
-
-try:
-    from config import FALLBACK_MODELS
-except Exception as e:
-    st.error("❌ Error in config.py")
-    st.exception(e)
-    st.stop()
-
-
-try:
-    from rag_engine import RAGEngine
-except Exception as e:
-    st.error("❌ Error in rag_engine.py")
-    st.exception(e)
-    st.stop()
-
-
-try:
-    from groq_client import (
-        get_client,
-        fetch_available_models,
-        build_prompt,
-        stream_answer,
-    )
-except Exception as e:
-    st.error("❌ Error in groq_client.py")
-    st.exception(e)
-    st.stop()
-
-
-# ---------------------------------------------------------------------------
-# PAGE CONFIG
-# ---------------------------------------------------------------------------
-
-st.set_page_config(
-    page_title="RAG PDF Chat · Groq",
-    page_icon="📄",
-    layout="wide",
-)
-
-
-# ---------------------------------------------------------------------------
-# CUSTOM STYLE
-# ---------------------------------------------------------------------------
+st.set_page_config(page_title="RAG PDF Chat · Groq", page_icon="📄", layout="wide")
 
 st.markdown(
     """
     <style>
-
     .hero {
         padding: 1.6rem 2rem;
         border-radius: 16px;
-        background: linear-gradient(
-            135deg,
-            #6C5CE7 0%,
-            #341F97 100%
-        );
+        background: linear-gradient(135deg, #6C5CE7 0%, #341F97 100%);
         margin-bottom: 1.4rem;
     }
-
-    .hero h1 {
-        color: white;
-        margin-bottom: 0.3rem;
-        font-size: 1.9rem;
-    }
-
-    .hero p {
-        color: #e6e1ff;
-        margin: 0;
-        font-size: 0.95rem;
-    }
-
+    .hero h1 { color: white; margin-bottom: 0.3rem; font-size: 1.9rem; }
+    .hero p { color: #e6e1ff; margin: 0; font-size: 0.95rem; }
     .badge {
         display: inline-block;
         padding: 0.2rem 0.7rem;
@@ -98,613 +38,169 @@ st.markdown(
         font-size: 0.78rem;
         margin-right: 0.4rem;
     }
-
-    .stChatMessage {
-        border-radius: 14px;
-    }
-
-    section[data-testid="stSidebar"] {
-        border-right: 1px solid rgba(255,255,255,0.08);
-    }
-
+    .stChatMessage { border-radius: 14px; }
+    section[data-testid="stSidebar"] { border-right: 1px solid rgba(255,255,255,0.08); }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-# ---------------------------------------------------------------------------
-# HERO
-# ---------------------------------------------------------------------------
-
 st.markdown(
     """
     <div class="hero">
-
         <h1>📄 Chat with your PDFs</h1>
-
         <p>
             <span class="badge">⚡ Groq inference</span>
             <span class="badge">🔎 FAISS retrieval</span>
             <span class="badge">🧩 Open-source embeddings</span>
         </p>
-
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-
 # ---------------------------------------------------------------------------
 # SESSION STATE
 # ---------------------------------------------------------------------------
-
 if "engine" not in st.session_state:
     st.session_state.engine = RAGEngine()
-
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-
 engine: RAGEngine = st.session_state.engine
-
 
 # ---------------------------------------------------------------------------
 # SIDEBAR
 # ---------------------------------------------------------------------------
-
 with st.sidebar:
-
     st.subheader("⚙️ Settings")
 
     api_key = st.text_input(
         "Groq API Key",
         type="password",
         value=os.environ.get("GROQ_API_KEY", ""),
-        help="Get a free key from Groq Console.",
+        help="Get a free key at console.groq.com/keys",
     )
-
     if api_key:
         os.environ["GROQ_API_KEY"] = api_key
 
-    # -----------------------------------------------------------------------
-    # MODELS
-    # -----------------------------------------------------------------------
+    available_models = fetch_available_models(api_key) if api_key else FALLBACK_MODELS
+    model = st.selectbox("Model", available_models, index=0)
 
-    available_models = (
-        fetch_available_models(api_key)
-        if api_key
-        else FALLBACK_MODELS
-    )
-
-    if not available_models:
-        available_models = FALLBACK_MODELS
-
-    model = st.selectbox(
-        "Model",
-        available_models,
-        index=0,
-    )
-
-    # -----------------------------------------------------------------------
-    # CHUNKING
-    # -----------------------------------------------------------------------
-
-    with st.expander("🔧 Chunking & Retrieval Options"):
-
-        chunk_size = st.slider(
-            "Chunk size (words)",
-            min_value=100,
-            max_value=1000,
-            value=400,
-            step=50,
-        )
-
-        chunk_overlap = st.slider(
-            "Chunk overlap (words)",
-            min_value=0,
-            max_value=300,
-            value=50,
-            step=10,
-        )
-
-        top_k = st.slider(
-            "Top-k chunks to retrieve",
-            min_value=1,
-            max_value=6,
-            value=3,
-        )
-
-    # -----------------------------------------------------------------------
-    # DOCUMENT UPLOAD
-    # -----------------------------------------------------------------------
+    with st.expander("🔧 Chunking options"):
+        chunk_size = st.slider("Chunk size (words)", 100, 1000, 400, step=50)
+        chunk_overlap = st.slider("Chunk overlap (words)", 0, 300, 50, step=10)
+        top_k = st.slider("Top-k chunks to retrieve", 1, 10, 4)
 
     st.subheader("📎 Documents")
-
-    uploaded_files = st.file_uploader(
-        "Upload PDF(s)",
-        type=["pdf"],
-        accept_multiple_files=True,
-    )
+    uploaded_files = st.file_uploader("Upload PDF(s)", type=["pdf"], accept_multiple_files=True)
 
     c1, c2 = st.columns(2)
-
-    process_clicked = c1.button(
-        "📥 Process",
-        use_container_width=True,
-    )
-
-    clear_clicked = c2.button(
-        "🗑️ Clear",
-        use_container_width=True,
-    )
-
-    # -----------------------------------------------------------------------
-    # SAVE / LOAD
-    # -----------------------------------------------------------------------
+    process_clicked = c1.button("📥 Process", use_container_width=True)
+    clear_clicked = c2.button("🗑️ Clear", use_container_width=True)
 
     st.divider()
-
     st.caption("Persistent index")
-
     c3, c4 = st.columns(2)
-
-    save_clicked = c3.button(
-        "💾 Save",
-        use_container_width=True,
-    )
-
-    load_clicked = c4.button(
-        "📂 Load",
-        use_container_width=True,
-    )
-
-    # -----------------------------------------------------------------------
-    # DOCUMENT INFORMATION
-    # -----------------------------------------------------------------------
+    save_clicked = c3.button("💾 Save", use_container_width=True)
+    load_clicked = c4.button("📂 Load", use_container_width=True)
 
     if engine.processed_files:
-
         st.divider()
-
         m1, m2 = st.columns(2)
-
-        m1.metric(
-            "Documents",
-            len(engine.processed_files),
-        )
-
-        m2.metric(
-            "Chunks",
-            len(engine.chunks),
-        )
-
+        m1.metric("Documents", len(engine.processed_files))
+        m2.metric("Chunks", len(engine.chunks))
         for fname in engine.processed_files:
             st.caption(f"• {fname}")
 
-
-# ---------------------------------------------------------------------------
-# PROCESS PDF
-# ---------------------------------------------------------------------------
-
-if process_clicked:
-
-    if not uploaded_files:
-
-        st.sidebar.warning(
-            "Please upload at least one PDF."
-        )
-
-    else:
-
-        with st.spinner(
-            "Extracting, chunking and indexing PDFs..."
-        ):
-
-            total_new = 0
-
-            for file in uploaded_files:
-
-                try:
-
-                    total_new += engine.add_pdf(
-                        file,
-                        chunk_size,
-                        chunk_overlap,
-                    )
-
-                except Exception as e:
-
-                    st.sidebar.error(
-                        f"Error processing {file.name}: {e}"
-                    )
-
-            if total_new:
-
-                st.sidebar.success(
-                    f"Indexed {total_new} new chunks."
-                )
-
-            else:
-
-                st.sidebar.info(
-                    "No new chunks were added."
-                )
-
-
-# ---------------------------------------------------------------------------
-# CLEAR
-# ---------------------------------------------------------------------------
+# --- handle sidebar actions -------------------------------------------------
+if process_clicked and uploaded_files:
+    with st.spinner("Extracting and indexing PDFs..."):
+        total_new = 0
+        for file in uploaded_files:
+            total_new += engine.add_pdf(file, chunk_size, chunk_overlap)
+        if total_new:
+            st.sidebar.success(f"Indexed {total_new} new chunks.")
+        else:
+            st.sidebar.info("Nothing new to index.")
 
 if clear_clicked:
-
     engine.clear()
-
     st.session_state.chat_history = []
-
     st.rerun()
 
-
-# ---------------------------------------------------------------------------
-# SAVE
-# ---------------------------------------------------------------------------
-
 if save_clicked:
-
-    try:
-
-        if engine.save():
-
-            st.sidebar.success(
-                "FAISS index saved successfully."
-            )
-
-        else:
-
-            st.sidebar.warning(
-                "Nothing to save yet."
-            )
-
-    except Exception as e:
-
-        st.sidebar.error(
-            f"Save error: {e}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# LOAD
-# ---------------------------------------------------------------------------
+    st.sidebar.success("Saved to disk.") if engine.save() else st.sidebar.warning("Nothing to save yet.")
 
 if load_clicked:
-
-    try:
-
-        if engine.load():
-
-            st.sidebar.success(
-                "FAISS index loaded successfully."
-            )
-
-        else:
-
-            st.sidebar.warning(
-                "No saved index found."
-            )
-
-    except Exception as e:
-
-        st.sidebar.error(
-            f"Load error: {e}"
-        )
-
+    st.sidebar.success("Loaded from disk.") if engine.load() else st.sidebar.warning("No saved index found.")
 
 # ---------------------------------------------------------------------------
-# STATUS
+# MAIN CHAT AREA
 # ---------------------------------------------------------------------------
-
 if not api_key:
-
-    st.info(
-        "👈 Enter your Groq API key in the sidebar to get started."
-    )
-
+    st.info("👈 Enter your Groq API key in the sidebar to get started.")
 elif engine.index is None:
-
-    st.info(
-        "👈 Upload a PDF and click **Process** to start chatting."
-    )
-
-
-# ---------------------------------------------------------------------------
-# DISPLAY CHAT HISTORY
-# ---------------------------------------------------------------------------
+    st.info("👈 Upload a PDF and click **Process** to start chatting.")
 
 for turn in st.session_state.chat_history:
-
     with st.chat_message(turn["role"]):
-
-        st.markdown(
-            turn["content"]
-        )
-
+        st.markdown(turn["content"])
         if turn.get("sources"):
-
             with st.expander("📚 Sources"):
+                for s in turn["sources"]:
+                    st.markdown(f"**{s['source']} — page {s['page']}**  ·  relevance {s['score']:.2f}")
+                    st.caption(s["text"][:300] + "...")
 
-                for source in turn["sources"]:
-
-                    st.markdown(
-                        f"**{source['source']} — "
-                        f"page {source['page']}**  · "
-                        f"relevance {source['score']:.2f}"
-                    )
-
-                    preview = source["text"][:300]
-
-                    st.caption(
-                        preview + "..."
-                    )
-
-
-# ---------------------------------------------------------------------------
-# CHAT INPUT
-# ---------------------------------------------------------------------------
-
-query = st.chat_input(
-    "Ask a question about your document(s)..."
-)
-
+query = st.chat_input("Ask a question about your document(s)...")
 
 if query:
-
-    # -----------------------------------------------------------------------
-    # VALIDATION
-    # -----------------------------------------------------------------------
-
     if not api_key:
+        st.error("Please enter your Groq API key first.")
+    elif engine.index is None:
+        st.error("Please upload and process a PDF first.")
+    else:
+        st.session_state.chat_history.append({"role": "user", "content": query})
+        with st.chat_message("user"):
+            st.markdown(query)
 
-        st.error(
-            "Please enter your Groq API key first."
-        )
-
-        st.stop()
-
-    if engine.index is None:
-
-        st.error(
-            "Please upload and process a PDF first."
-        )
-
-        st.stop()
-
-    # -----------------------------------------------------------------------
-    # USER MESSAGE
-    # -----------------------------------------------------------------------
-
-    st.session_state.chat_history.append(
-        {
-            "role": "user",
-            "content": query,
-        }
-    )
-
-    with st.chat_message("user"):
-
-        st.markdown(query)
-
-    # -----------------------------------------------------------------------
-    # RETRIEVE DOCUMENT CONTEXT
-    # -----------------------------------------------------------------------
-
-    with st.spinner(
-        "Searching your documents..."
-    ):
-
-        try:
-
-            context_chunks = engine.retrieve(
-                query,
-                k=top_k,
-            )
-
-        except Exception as e:
-
-            st.error(
-                f"❌ Retrieval error: {e}"
-            )
-
-            st.stop()
-
-    if not context_chunks:
-
-        assistant_answer = (
-            "I couldn't find relevant information "
-            "in the uploaded document."
-        )
-
-        with st.chat_message("assistant"):
-
-            st.markdown(
-                assistant_answer
-            )
-
-        st.session_state.chat_history.append(
-            {
-                "role": "assistant",
-                "content": assistant_answer,
-                "sources": [],
-            }
-        )
-
-        st.stop()
-
-    # -----------------------------------------------------------------------
-    # BUILD PROMPT
-    # -----------------------------------------------------------------------
-
-    try:
-
-        system_prompt, user_prompt = build_prompt(
-            query,
-            context_chunks,
-        )
-
-    except Exception as e:
-
-        error_message = (
-            f"⚠️ Error building RAG prompt: {e}"
-        )
-
-        with st.chat_message("assistant"):
-
-            st.error(error_message)
-
-        st.session_state.chat_history.append(
-            {
-                "role": "assistant",
-                "content": error_message,
-                "sources": context_chunks,
-            }
-        )
-
-        st.stop()
-
-    # -----------------------------------------------------------------------
-    # GROQ CLIENT
-    # -----------------------------------------------------------------------
-
-    try:
-
+        context_chunks = engine.retrieve(query, k=top_k)
+        system_prompt, user_prompt = build_prompt(query, context_chunks)
         client = get_client(api_key)
 
-    except Exception as e:
-
-        error_message = (
-            f"⚠️ Could not initialize Groq client: {e}"
-        )
-
         with st.chat_message("assistant"):
+            placeholder = st.empty()
+            full_response = ""
+            try:
+                for delta in stream_answer(
+                    client, model, system_prompt, user_prompt, st.session_state.chat_history[:-1]
+                ):
+                    full_response += delta
+                    placeholder.markdown(full_response + "▌")
+                placeholder.markdown(full_response)
+            except Exception as e:
+                full_response = f"⚠️ Error calling Groq API: {e}"
+                placeholder.markdown(full_response)
 
-            st.error(error_message)
+            if context_chunks:
+                with st.expander("📚 Sources"):
+                    for s in context_chunks:
+                        st.markdown(f"**{s['source']} — page {s['page']}**  ·  relevance {s['score']:.2f}")
+                        st.caption(s["text"][:300] + "...")
 
         st.session_state.chat_history.append(
-            {
-                "role": "assistant",
-                "content": error_message,
-                "sources": context_chunks,
-            }
+            {"role": "assistant", "content": full_response, "sources": context_chunks}
         )
 
-        st.stop()
-
-    # -----------------------------------------------------------------------
-    # GENERATE ANSWER
-    # -----------------------------------------------------------------------
-
-    with st.chat_message("assistant"):
-
-        placeholder = st.empty()
-
-        full_response = ""
-
-        try:
-
-            recent_history = (
-                st.session_state.chat_history[:-1][-4:]
-            )
-
-            for delta in stream_answer(
-                client=client,
-                model=model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                chat_history=recent_history,
-            ):
-
-                full_response += delta
-
-                placeholder.markdown(
-                    full_response + "▌"
-                )
-
-            placeholder.markdown(
-                full_response
-            )
-
-        except Exception as e:
-
-            full_response = (
-                f"⚠️ Error calling Groq API: {e}"
-            )
-
-            placeholder.error(
-                full_response
-            )
-
-        # -------------------------------------------------------------------
-        # SOURCES
-        # -------------------------------------------------------------------
-
-        if context_chunks:
-
-            with st.expander(
-                "📚 Sources"
-            ):
-
-                for source in context_chunks:
-
-                    st.markdown(
-                        f"**{source['source']} — "
-                        f"page {source['page']}**  · "
-                        f"relevance "
-                        f"{source['score']:.2f}"
-                    )
-
-                    st.caption(
-                        source["text"][:300] + "..."
-                    )
-
-    # -----------------------------------------------------------------------
-    # SAVE ASSISTANT MESSAGE
-    # -----------------------------------------------------------------------
-
-    st.session_state.chat_history.append(
-        {
-            "role": "assistant",
-            "content": full_response,
-            "sources": context_chunks,
-        }
-    )
-
-
-# ---------------------------------------------------------------------------
-# EXPORT CHAT
-# ---------------------------------------------------------------------------
-
+# --- export chat -------------------------------------------------------
 if st.session_state.chat_history:
-
-    lines = []
-
-    for turn in st.session_state.chat_history:
-
-        role = (
-            "You"
-            if turn["role"] == "user"
-            else "Assistant"
-        )
-
-        lines.append(
-            f"{role}: {turn['content']}\n"
-        )
-
+    lines = [
+        f"{'You' if t['role'] == 'user' else 'Assistant'}: {t['content']}\n"
+        for t in st.session_state.chat_history
+    ]
     st.download_button(
         "⬇️ Export chat history",
         data="\n".join(lines),
-        file_name=(
-            f"chat_"
-            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            f".txt"
-        ),
+        file_name=f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
         mime="text/plain",
     )
