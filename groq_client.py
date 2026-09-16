@@ -27,14 +27,15 @@ def build_prompt(query, context_chunks):
         for c in context_chunks
     )
     system = (
-        "You are a helpful assistant that answers questions strictly using the "
-        "provided context extracted from the user's PDF document(s). "
-        "If the answer is not contained in the context, say clearly that you "
-        "don't have enough information from the documents, and STOP there — "
+        "You are a helpful assistant that answers questions using the context "
+        "extracted from the user's PDF document(s) below. "
+        "Read the ENTIRE context carefully before deciding whether the answer is present — "
+        "the information you need may be anywhere in it, not just the first lines. "
+        "If, after carefully checking, the answer is genuinely not contained in the context, "
+        "say clearly that you don't have enough information from the documents, and STOP there — "
         "do not substitute or mention unrelated information just to fill the answer. "
-        "Never guess or fill gaps with information about a different entity, company, "
-        "or topic than what was asked. "
-        "When you do answer, mention which source file and page the information came from."
+        "When you do answer, quote or closely paraphrase the relevant detail and mention which "
+        "source file and page it came from."
     )
     user = f"Context:\n{context}\n\nQuestion: {query}"
     return system, user
