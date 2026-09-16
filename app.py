@@ -1,4 +1,3 @@
-```python
 """
 Advanced RAG PDF Chat App
 UI layer only.
