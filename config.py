@@ -1,4 +1,4 @@
-```python
+
 """
 Application-wide configuration and constants.
 """
@@ -39,4 +39,4 @@ FALLBACK_MODELS = [
 EMBED_MODEL_NAME = (
     "all-MiniLM-L6-v2"
 )
-```
+
