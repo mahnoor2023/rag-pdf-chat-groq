@@ -13,14 +13,38 @@ from datetime import datetime
 
 import streamlit as st
 
-from config import FALLBACK_MODELS
-from rag_engine import RAGEngine
-from groq_client import (
-    get_client,
-    fetch_available_models,
-    build_prompt,
-    stream_answer,
-)
+
+# ---------------------------------------------------------------------------
+# SAFE IMPORTS
+# ---------------------------------------------------------------------------
+
+try:
+    from config import FALLBACK_MODELS
+except Exception as e:
+    st.error("❌ Error in config.py")
+    st.exception(e)
+    st.stop()
+
+
+try:
+    from rag_engine import RAGEngine
+except Exception as e:
+    st.error("❌ Error in rag_engine.py")
+    st.exception(e)
+    st.stop()
+
+
+try:
+    from groq_client import (
+        get_client,
+        fetch_available_models,
+        build_prompt,
+        stream_answer,
+    )
+except Exception as e:
+    st.error("❌ Error in groq_client.py")
+    st.exception(e)
+    st.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +167,9 @@ with st.sidebar:
     if api_key:
         os.environ["GROQ_API_KEY"] = api_key
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # MODELS
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     available_models = (
         fetch_available_models(api_key)
@@ -153,15 +177,18 @@ with st.sidebar:
         else FALLBACK_MODELS
     )
 
+    if not available_models:
+        available_models = FALLBACK_MODELS
+
     model = st.selectbox(
         "Model",
         available_models,
         index=0,
     )
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # CHUNKING
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     with st.expander("🔧 Chunking & Retrieval Options"):
 
@@ -188,9 +215,9 @@ with st.sidebar:
             value=3,
         )
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # DOCUMENT UPLOAD
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     st.subheader("📎 Documents")
 
@@ -212,9 +239,9 @@ with st.sidebar:
         use_container_width=True,
     )
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # SAVE / LOAD
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     st.divider()
 
@@ -232,9 +259,9 @@ with st.sidebar:
         use_container_width=True,
     )
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # DOCUMENT INFORMATION
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     if engine.processed_files:
 
@@ -324,16 +351,24 @@ if clear_clicked:
 
 if save_clicked:
 
-    if engine.save():
+    try:
 
-        st.sidebar.success(
-            "FAISS index saved successfully."
-        )
+        if engine.save():
 
-    else:
+            st.sidebar.success(
+                "FAISS index saved successfully."
+            )
 
-        st.sidebar.warning(
-            "Nothing to save yet."
+        else:
+
+            st.sidebar.warning(
+                "Nothing to save yet."
+            )
+
+    except Exception as e:
+
+        st.sidebar.error(
+            f"Save error: {e}"
         )
 
 
@@ -343,16 +378,24 @@ if save_clicked:
 
 if load_clicked:
 
-    if engine.load():
+    try:
 
-        st.sidebar.success(
-            "FAISS index loaded successfully."
-        )
+        if engine.load():
 
-    else:
+            st.sidebar.success(
+                "FAISS index loaded successfully."
+            )
 
-        st.sidebar.warning(
-            "No saved index found."
+        else:
+
+            st.sidebar.warning(
+                "No saved index found."
+            )
+
+    except Exception as e:
+
+        st.sidebar.error(
+            f"Load error: {e}"
         )
 
 
@@ -415,9 +458,9 @@ query = st.chat_input(
 
 if query:
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # VALIDATION
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     if not api_key:
 
@@ -435,9 +478,9 @@ if query:
 
         st.stop()
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # USER MESSAGE
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     st.session_state.chat_history.append(
         {
@@ -450,18 +493,28 @@ if query:
 
         st.markdown(query)
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # RETRIEVE DOCUMENT CONTEXT
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     with st.spinner(
         "Searching your documents..."
     ):
 
-        context_chunks = engine.retrieve(
-            query,
-            k=top_k,
-        )
+        try:
+
+            context_chunks = engine.retrieve(
+                query,
+                k=top_k,
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"❌ Retrieval error: {e}"
+            )
+
+            st.stop()
 
     if not context_chunks:
 
@@ -472,7 +525,9 @@ if query:
 
         with st.chat_message("assistant"):
 
-            st.markdown(assistant_answer)
+            st.markdown(
+                assistant_answer
+            )
 
         st.session_state.chat_history.append(
             {
@@ -484,18 +539,40 @@ if query:
 
         st.stop()
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # BUILD PROMPT
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
-    system_prompt, user_prompt = build_prompt(
-        query,
-        context_chunks,
-    )
+    try:
 
-    # -------------------------------------------------------
+        system_prompt, user_prompt = build_prompt(
+            query,
+            context_chunks,
+        )
+
+    except Exception as e:
+
+        error_message = (
+            f"⚠️ Error building RAG prompt: {e}"
+        )
+
+        with st.chat_message("assistant"):
+
+            st.error(error_message)
+
+        st.session_state.chat_history.append(
+            {
+                "role": "assistant",
+                "content": error_message,
+                "sources": context_chunks,
+            }
+        )
+
+        st.stop()
+
+    # -----------------------------------------------------------------------
     # GROQ CLIENT
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     try:
 
@@ -521,9 +598,9 @@ if query:
 
         st.stop()
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # GENERATE ANSWER
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     with st.chat_message("assistant"):
 
@@ -533,7 +610,6 @@ if query:
 
         try:
 
-            # Only send recent conversation history.
             recent_history = (
                 st.session_state.chat_history[:-1][-4:]
             )
@@ -566,9 +642,9 @@ if query:
                 full_response
             )
 
-        # ---------------------------------------------------
+        # -------------------------------------------------------------------
         # SOURCES
-        # ---------------------------------------------------
+        # -------------------------------------------------------------------
 
         if context_chunks:
 
@@ -589,9 +665,9 @@ if query:
                         source["text"][:300] + "..."
                     )
 
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
     # SAVE ASSISTANT MESSAGE
-    # -------------------------------------------------------
+    # -----------------------------------------------------------------------
 
     st.session_state.chat_history.append(
         {
@@ -632,4 +708,3 @@ if st.session_state.chat_history:
         ),
         mime="text/plain",
     )
-
