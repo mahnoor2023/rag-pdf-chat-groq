@@ -113,6 +113,15 @@ with st.sidebar:
         for fname in engine.processed_files:
             st.caption(f"• {fname}")
 
+        with st.expander("🔍 Debug: search indexed text"):
+            debug_query = st.text_input("Find a word/phrase in indexed chunks", key="debug_search")
+            if debug_query:
+                matches = [c for c in engine.chunks if debug_query.lower() in c["text"].lower()]
+                st.caption(f"{len(matches)} chunk(s) contain '{debug_query}'")
+                for m in matches[:10]:
+                    st.markdown(f"**{m['source']} — page {m['page']}**")
+                    st.code(m["text"], language=None)
+
 # --- handle sidebar actions -------------------------------------------------
 if process_clicked and uploaded_files:
     with st.spinner("Extracting and indexing PDFs..."):
